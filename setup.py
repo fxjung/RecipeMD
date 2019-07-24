@@ -21,6 +21,8 @@ setuptools.setup(
         # 'commonmark',
         'argcomplete==1.10.0',
         'boolean.py==3.6',
+        'flask==1.1.0',
+        'lxml==4.3.4',
     ],
     entry_points={
         'console_scripts': [
