@@ -12,14 +12,14 @@ import commonmark
 from commonmark.node import Node
 from commonmark_extensions.plaintext import CommonMarkToCommonMarkRenderer
 
-__all__ = ['Amount', 'IngredientGroup', 'Ingredient', 'Recipe', 'RecipeParser', 'RecipeSerializer', 'multiply_recipe',
-           'get_recipe_with_yield']
+__all__ = ['Amount', 'IngredientGroup', 'Ingredient', 'IngredientList', 'Recipe', 'RecipeParser', 'RecipeSerializer',
+           'multiply_recipe', 'get_recipe_with_yield']
 
 
 @dataclass
 class IngredientGroup:
     title: Optional[str] = None
-    children: List[Union[Ingredient, IngredientGroup]] = field(default_factory=list)
+    children: IngredientList = field(default_factory=list)
 
 
 @dataclass
@@ -45,7 +45,7 @@ class Recipe:
     description: Optional[str] = None
     yields: List[Amount] = field(default_factory=list)
     tags: List[str] = field(default_factory=list)
-    ingredients: List[Union[Ingredient, IngredientGroup]] = field(default_factory=list)
+    ingredients: IngredientList = field(default_factory=list)
     instructions: Optional[str] = None
 
     @property
@@ -60,24 +60,38 @@ class Recipe:
                 yield ingr
 
 
+IngredientListItem = Union[Ingredient, IngredientGroup]
+IngredientList = List[IngredientListItem]
+
+
 class RecipeSerializer:
-    def serialize(self, recipe: Recipe, *, rounding: Optional[int]=None):
+    def serialize(self, recipe: Recipe, *, rounding: Optional[int] = None):
         rep = ""
         rep += f'# {recipe.title}\n\n'
         if recipe.description is not None:
             rep += f'{recipe.description}\n\n'
         if len(recipe.tags) > 0:
-            rep += f'*{", ".join(recipe.tags)}*\n\n'
+            rep += f'*{self._serialize_tags(recipe.tags)}*\n\n'
         if len(recipe.yields) > 0:
-            rep += f'**{", ".join(self._serialize_amount(a, rounding=rounding) for a in recipe.yields)}**\n\n'
+            rep += f'**{self._serialize_yields(recipe.yields, rounding=rounding)}**\n\n'
         rep += f'---\n\n'
-        rep += ("\n".join(self._serialize_ingredient(g, 2, rounding=rounding) for g in recipe.ingredients)).strip()
+        rep += self._serialize_ingredients(recipe.ingredients, rounding=rounding)
         if recipe.instructions is not None:
             rep += f'\n\n---\n\n'
             rep += recipe.instructions
         return rep
 
-    def _serialize_ingredient(self, ingredient, level, *, rounding: Optional[int]=None):
+    def _serialize_tags(self, tags: List[str]):
+        return ", ".join(tags)
+
+    def _serialize_yields(self, yields: List[Amount], *, rounding: Optional[int] = None):
+        return ", ".join(self._serialize_amount(a, rounding=rounding) for a in yields)
+
+    def _serialize_ingredients(self, ingredients: IngredientList, *, initial_level: int = 2,
+                               rounding: Optional[int] = None):
+        return ("\n".join(self._serialize_ingredient(g, initial_level, rounding=rounding) for g in ingredients)).strip()
+
+    def _serialize_ingredient(self, ingredient: IngredientListItem, level: int, *, rounding: Optional[int] = None):
         if isinstance(ingredient, IngredientGroup):
             return f'\n{"#" * level} {ingredient.title}\n\n'\
                    + "\n".join(self._serialize_ingredient(i, level+1, rounding=rounding) for i in ingredient.children)
@@ -87,13 +101,13 @@ class RecipeSerializer:
             return f'- {self._serialize_ingredient_text(ingredient)}'
 
     @staticmethod
-    def _serialize_ingredient_text(ingredient):
+    def _serialize_ingredient_text(ingredient: Ingredient):
         if ingredient.link:
             return f'[{ingredient.name}]({ingredient.link})'
         return ingredient.name
 
     @staticmethod
-    def _serialize_amount(amount, *, rounding: Optional[int]=None):
+    def _serialize_amount(amount: Amount, *, rounding: Optional[int] = None):
         if amount.factor is not None and amount.unit is not None:
             return f'{RecipeSerializer._normalize_factor(amount.factor, rounding=rounding)} {amount.unit}'
         if amount.factor is not None:
@@ -102,7 +116,7 @@ class RecipeSerializer:
             return f'{amount.unit}'
 
     @staticmethod
-    def _normalize_factor(factor: Decimal, *, rounding: Optional[int]=None):
+    def _normalize_factor(factor: Decimal, *, rounding: Optional[int] = None):
         if rounding is not None:
             factor = round(factor, rounding)
         # remove trailing zeros (https://docs.python.org/3/library/decimal.html#decimal-faq)
